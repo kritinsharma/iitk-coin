@@ -77,7 +77,6 @@ func sendCoins(trx *transaction) error {
 	if err != nil {
 		return errors.New("transaction failed: something went wrong")
 	}
-
 	txRes, err2 := tx.Exec("UPDATE User SET coins = coins - ? WHERE rollno = ? AND coins >= ?", trx.Coins, trx.FromRollno, trx.Coins)
 	if err2 != nil {
 		tx.Rollback()

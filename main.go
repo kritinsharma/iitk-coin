@@ -15,7 +15,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
+	Db.SetMaxOpenConns(1)
 	statement, _ := Db.Prepare("CREATE TABLE IF NOT EXISTS User(rollno TEXT PRIMARY KEY, name TEXT NOT NULL, password TEXT NOT NULL, coins INT)") //Creating the Table
 	statement.Exec()
 
