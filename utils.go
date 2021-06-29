@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,26 +9,6 @@ import (
 
 	jwt "github.com/dgrijalva/jwt-go"
 )
-
-func addUser(usr *userDetails) error {
-	row := Db.QueryRow("SELECT COUNT(*) FROM User WHERE rollno = ?", usr.Rollno)
-	var has bool
-	row.Scan(&has)
-	if !has {
-		stmt, _ := Db.Prepare("INSERT INTO User (rollno, name, password, coins) VALUES (?, ?, ?, ?)")
-		_, err := stmt.Exec(usr.Rollno, usr.Name, usr.Password, 0)
-
-		if err != nil {
-			return errors.New("could not add user: something went wrong")
-		} else {
-			fmt.Printf("User [%s: %s] succesfully added.\n", usr.Rollno, usr.Name)
-			return nil
-		}
-
-	} else {
-		return fmt.Errorf("user with roll number %v already present", usr.Rollno)
-	}
-}
 
 func checkBalance(rollno string) (int, error) {
 
@@ -71,13 +50,13 @@ func addCoins(rec *recipient) error {
 
 }
 
-func sendCoins(trx *transaction) error {
+func sendCoins(trf *transfer) error {
 
 	tx, err := Db.Begin()
 	if err != nil {
 		return errors.New("transaction failed: something went wrong")
 	}
-	txRes, err2 := tx.Exec("UPDATE User SET coins = coins - ? WHERE rollno = ? AND coins >= ?", trx.Coins, trx.FromRollno, trx.Coins)
+	txRes, err2 := tx.Exec("UPDATE User SET coins = coins - ? WHERE rollno = ? AND coins >= ?", trf.Coins, trf.FromRollno, trf.Coins)
 	if err2 != nil {
 		tx.Rollback()
 		return errors.New("transaction failed: something went wrong")
@@ -89,7 +68,7 @@ func sendCoins(trx *transaction) error {
 		return errors.New("transaction failed: something went wrong")
 	}
 
-	txRes, err2 = tx.Exec("UPDATE User SET coins = coins + ? WHERE rollno = ? AND coins + ? <= 1000", trx.Coins, trx.ToRollno, trx.Coins)
+	txRes, err2 = tx.Exec("UPDATE User SET coins = coins + ? WHERE rollno = ? AND coins + ? <= 1000", trf.TaxedAmt*trf.Coins, trf.ToRollno, trf.TaxedAmt*trf.Coins)
 	if err2 != nil {
 		tx.Rollback()
 		return errors.New("transaction failed: something went wrong")
@@ -105,12 +84,34 @@ func sendCoins(trx *transaction) error {
 	return nil
 }
 
-func GetToken(rollno string) (string, error) {
+func redeemCoins(red *redeem) error {
+
+	tx, err := Db.Begin()
+	if err != nil {
+		return errors.New("transaction failed: something went wrong")
+	}
+	txRes, err2 := tx.Exec("UPDATE User SET coins = coins - ? WHERE rollno = ? AND coins >= ?", red.Coins, red.Rollno, red.Coins)
+	if err2 != nil {
+		tx.Rollback()
+		return errors.New("transaction failed: something went wrong")
+	}
+	rowsA, err3 := txRes.RowsAffected()
+	if err3 != nil || rowsA != 1 {
+		tx.Rollback()
+		return errors.New("transaction failed: something went wrong")
+	}
+
+	tx.Commit()
+	return nil
+}
+
+func GetToken(rollno string, isAdmin bool, batch string) (string, error) {
 
 	expiresAt := time.Now().Add(time.Minute * 30).Unix()
 
-	tkn := &token{
-		Rollno: rollno,
+	tkn := &tokenPayload{
+		Rollno:  rollno,
+		IsAdmin: isAdmin,
 		StandardClaims: jwt.StandardClaims{
 			ExpiresAt: expiresAt,
 		},
@@ -127,29 +128,28 @@ func GetToken(rollno string) (string, error) {
 
 }
 
-func isAuthorised(handler func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func isValidToken(r *http.Request) (tokenPayload, error) {
 
-		if r.Header["Token"] == nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{"message": "Not Authorised"})
-			return
+	if r.Header["Token"] == nil {
+		return tokenPayload{}, errors.New("no token")
+	}
+
+	payload := tokenPayload{}
+
+	token, err := jwt.ParseWithClaims(r.Header["Token"][0], &payload, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok { // check if the tokenString is in the correct format
+			return nil, fmt.Errorf("internal error")
 		}
-
-		token, err := jwt.Parse(r.Header["Token"][0], func(token *jwt.Token) (interface{}, error) {
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok { // check if the tokenString is in the correct format
-				return nil, fmt.Errorf("internal error")
-			}
-			return []byte(jwtSignature), nil
-		})
-
-		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{"message": "Not Authorised"})
-			return
-		}
-
-		if token.Valid {
-			handler(w, r)
-		}
-
+		return []byte(jwtSignature), nil
 	})
+
+	if err != nil {
+		return tokenPayload{}, errors.New("could not parse token")
+	}
+
+	if token.Valid {
+		return payload, nil
+	}
+
+	return tokenPayload{}, errors.New("token expired")
 }
