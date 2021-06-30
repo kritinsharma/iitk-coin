@@ -10,10 +10,10 @@ import (
 	jwt "github.com/dgrijalva/jwt-go"
 )
 
-func checkBalance(rollno string) (int, error) {
+func checkBalance(rollno string) (float32, error) {
 
 	row := Db.QueryRow("SELECT coins FROM User WHERE rollno = ?", rollno)
-	var coinBalance int
+	var coinBalance float32
 	err := row.Scan(&coinBalance)
 
 	if err == sql.ErrNoRows {
