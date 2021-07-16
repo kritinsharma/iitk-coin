@@ -37,6 +37,21 @@ type transfer struct {
 }
 
 type redeem struct {
-	Rollno string  `json:"rollno"`
-	Coins  float32 `json:"coins"`
+	Rollno   string  `json:"rollno"`
+	Coins    float32 `json:"coins"`
+	ItemName string  `json:"itemName"`
+}
+
+type redeemRequest struct {
+	RequestID int    `json:"requestID"`
+	Rollno    string `json:"rollno"`
+	Coins     string `json:"coins"`
+	ItemName  string `json:"itemName"`
+	MadeAt    string `json:"madeAt"`
+	Status    string `json:"status"`
+}
+
+type pendingVerdict struct {
+	RequestID int    `json:"requestID"`
+	Verdict   string `json:"verdict"`
 }

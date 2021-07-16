@@ -31,7 +31,7 @@ func SignUp(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "Name should not be empty.")
 		return
 	}
-	if len(user.Password) <= 7 {
+	if len(user.Password) <= 7 || len(user.Password) > 72 {
 		fmt.Fprint(w, "Password should be atleast 8 characters long.")
 		return
 	}
@@ -106,7 +106,9 @@ func Secret(w http.ResponseWriter, r *http.Request) {
 
 	pl, err := isValidToken(r)
 
-	if err != nil {
+	exists, _ := Exists(pl.Rollno)
+
+	if err != nil || !exists {
 		fmt.Fprint(w, "Not Authorised.")
 		return
 	}
@@ -123,7 +125,9 @@ func Reward(w http.ResponseWriter, r *http.Request) {
 
 	pl, err := isValidToken(r)
 
-	if err != nil || !pl.IsAdmin {
+	exists, _ := Exists(pl.Rollno)
+
+	if err != nil || !exists || !pl.IsAdmin {
 		fmt.Fprint(w, "Not Authorised.")
 		return
 	}
@@ -141,13 +145,11 @@ func Reward(w http.ResponseWriter, r *http.Request) {
 	isAdmin, err = AdminFlag(user.Rollno)
 
 	if err != nil {
-		logReward(user, false)
 		fmt.Fprint(w, err.Error())
 		return
 	}
 
 	if isAdmin {
-		logReward(user, false)
 		fmt.Fprint(w, "Invalid Request.")
 		return
 	}
@@ -155,20 +157,20 @@ func Reward(w http.ResponseWriter, r *http.Request) {
 	err = addCoins(user)
 
 	if err != nil {
-		logReward(user, false)
 		fmt.Fprint(w, err.Error())
 		return
 	}
 
-	logReward(user, true)
 	fmt.Fprint(w, "Transaction Successful!")
 }
 
 func getCoins(w http.ResponseWriter, r *http.Request) {
 
-	pl, er := isValidToken(r)
+	pl, err := isValidToken(r)
 
-	if er != nil {
+	exists, _ := Exists(pl.Rollno)
+
+	if err != nil || !exists {
 		fmt.Fprint(w, "Not Authorised.")
 		return
 	}
@@ -195,7 +197,9 @@ func Transfer(w http.ResponseWriter, r *http.Request) {
 	// Validate token and get payload if the token is valid
 	pl, err := isValidToken(r)
 
-	if err != nil {
+	exists, _ := Exists(pl.Rollno)
+
+	if err != nil || !exists {
 		fmt.Fprint(w, "Not Authorised.")
 		return
 	}
@@ -221,13 +225,11 @@ func Transfer(w http.ResponseWriter, r *http.Request) {
 	fromBatch, er = getBatch(sender)
 	if er != nil {
 		fmt.Fprint(w, er.Error())
-		logTransfer(trf, false)
 		return
 	}
 	toBatch, er = getBatch(trf.ToRollno)
 	if er != nil {
 		fmt.Fprint(w, er.Error())
-		logTransfer(trf, false)
 		return
 	}
 	i := 1
@@ -239,7 +241,6 @@ func Transfer(w http.ResponseWriter, r *http.Request) {
 
 	if trf.Coins <= 0 {
 		fmt.Fprint(w, "Coins involved in a transaction must be positive!")
-		logTransfer(trf, false)
 		return
 	}
 
@@ -249,13 +250,11 @@ func Transfer(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		fmt.Fprint(w, err.Error())
-		logTransfer(trf, false)
 		return
 	}
 
 	if isAdmin {
 		fmt.Fprint(w, "Invalid Request.")
-		logTransfer(trf, false)
 		return
 	}
 
@@ -263,11 +262,9 @@ func Transfer(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		fmt.Fprint(w, err.Error())
-		logTransfer(trf, false)
 		return
 	}
 
-	logTransfer(trf, true)
 	fmt.Fprint(w, "Transaction Successful!")
 
 }
@@ -276,7 +273,9 @@ func Redeem(w http.ResponseWriter, r *http.Request) {
 
 	pl, err := isValidToken(r)
 
-	if err != nil {
+	exists, _ := Exists(pl.Rollno)
+
+	if err != nil || !exists {
 		fmt.Fprint(w, "Not Authorised.")
 		return
 	}
@@ -290,25 +289,93 @@ func Redeem(w http.ResponseWriter, r *http.Request) {
 	err = Db.QueryRow("SELECT COUNT(*) FROM Transaction_Logs WHERE mode = ? AND secondaryUser = ?", "REWARD", red.Rollno).Scan(&eventCount)
 	if err != nil {
 		fmt.Fprint(w, "error: something went wrong")
-		logRedeem(red, false)
 		return
 	}
 
 	if eventCount < minEventsToRedeem {
-		fmt.Print(w, "not eleigible to redeem yet")
-		logRedeem(red, false)
+		fmt.Fprint(w, "not eleigible to redeem yet")
 		return
 	}
 
-	err = redeemCoins(red)
+	err = createRedeemRequest(red)
 
 	if err != nil {
 		fmt.Fprint(w, err.Error())
-		logRedeem(red, false)
 		return
 	}
 
-	logRedeem(red, true)
-	fmt.Fprintf(w, "Transaction Successful!. Here are your %f coins", red.Coins)
+	fmt.Fprint(w, "Your redeem request status: pending. It will get updated when the request is approved/rejected")
+
+}
+
+func getPendingRequests(w http.ResponseWriter, r *http.Request) {
+
+	pl, err := isValidToken(r)
+
+	exists, _ := Exists(pl.Rollno)
+
+	if err != nil || !exists || !pl.IsAdmin {
+		fmt.Fprint(w, "Not Authorised.")
+		return
+	}
+
+	var pendingReqs []redeemRequest
+
+	rows, er := Db.Query("SELECT requestID, itemName, coins, madeBy, madeAt FROM RedeemRequests WHERE status = 'p'")
+	if er != nil {
+		fmt.Println(er)
+		fmt.Fprint(w, "internal error")
+		return
+	}
+	defer rows.Close()
+
+	var pendingReq redeemRequest
+	pendingReq.Status = "p"
+
+	for rows.Next() {
+		er = rows.Scan(&pendingReq.RequestID, &pendingReq.ItemName, &pendingReq.Coins, &pendingReq.Rollno, &pendingReq.MadeAt)
+		if er != nil {
+			fmt.Fprint(w, "internal error")
+			return
+		}
+		pendingReqs = append(pendingReqs, pendingReq)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(pendingReqs)
+}
+
+func AcceptRejectRedeemRequest(w http.ResponseWriter, r *http.Request) {
+
+	pl, err := isValidToken(r)
+
+	exists, _ := Exists(pl.Rollno)
+
+	if err != nil || !exists || !pl.IsAdmin {
+		fmt.Fprint(w, "Not Authorised.")
+		return
+	}
+
+	pendVer := &pendingVerdict{}
+	json.NewDecoder(r.Body).Decode(pendVer)
+
+	var status string
+	err = Db.QueryRow("SELECT status FROM RedeemRequests WHERE requestID = ?", pendVer.RequestID).Scan(&status)
+	if status != "p" {
+		fmt.Fprint(w, "invalid request")
+		return
+	}
+	if err != nil {
+		fmt.Fprint(w, "action failed: please try again later")
+		return
+	}
+
+	err = updateRedeemReq(pendVer)
+	if err != nil {
+		fmt.Fprint(w, err.Error())
+		return
+	}
+
+	fmt.Fprint(w, "action completed successfully")
 
 }

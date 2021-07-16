@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 )
 
 var Db *sql.DB
@@ -58,32 +57,10 @@ func addUser(usr *userDetails) error {
 	}
 }
 
-/*TransactionID INT PRIMARY KEY AUTO_INCREMENT,
-mode TEXT,
-primaryUser TEXT,
-deb_cred_primary FLOAT,
-secondaryUser TEXT,
-deb_cred_secondary FLOAT,
-madeAt DATE DEFAULT (DATETIME('now', 'localtime')),
-status BOOL*/
-
-func logTransfer(trf *transfer, status bool) {
-	_, err := Db.Exec("INSERT INTO Transaction_Logs (mode, secondaryUser, deb_cred_secondary, primaryUser, deb_cred_primary, status) VALUES (?, ?, ?, ?, ?, ?)", "TRANSFER", trf.ToRollno, trf.TaxedAmt*trf.Coins, trf.FromRollno, -trf.Coins, status)
+func createRedeemRequest(red *redeem) error {
+	_, err := Db.Exec("INSERT INTO RedeemRequests (itemName, coins, madeBy) VALUES (?, ?, ?)", red.ItemName, red.Coins, red.Rollno)
 	if err != nil {
-		log.Fatal(err)
+		return errors.New("internal error: something went wrong")
 	}
-}
-
-func logReward(rec *recipient, status bool) {
-	_, err := Db.Exec("INSERT INTO Transaction_Logs (mode, secondaryUser, deb_cred_secondary, status) VALUES (?, ?, ?, ?)", "REWARD", rec.Rollno, rec.Coins, status)
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
-func logRedeem(red *redeem, status bool) {
-	_, err := Db.Exec("INSERT INTO Transaction_Logs (mode, primaryUser, deb_cred_primary, status) VALUES (?, ?, ?, ?)", "REDEEM", red.Rollno, -red.Coins, status)
-	if err != nil {
-		log.Fatal(err)
-	}
+	return nil
 }

@@ -17,8 +17,8 @@ func main() {
 	}
 	Db.SetMaxOpenConns(1)
 	Db.Exec("CREATE TABLE IF NOT EXISTS User(rollno TEXT PRIMARY KEY, name TEXT NOT NULL, password TEXT NOT NULL, coins FLOAT, isAdmin BOOL)")
-	Db.Exec("CREATE TABLE IF NOT EXISTS Transaction_Logs(transactionID INTEGER PRIMARY KEY AUTOINCREMENT, mode TEXT, primaryUser TEXT, deb_cred_primary FLOAT, secondaryUser TEXT, deb_cred_secondary FLOAT, madeAt DATE DEFAULT (DATETIME('now', 'localtime')), status BOOL)")
-
+	Db.Exec("CREATE TABLE IF NOT EXISTS Transaction_Logs(transactionID INTEGER PRIMARY KEY AUTOINCREMENT, mode TEXT, primaryUser TEXT, deb_cred_primary FLOAT, secondaryUser TEXT, deb_cred_secondary FLOAT, madeAt DATE DEFAULT (DATETIME('now', 'localtime')))")
+	Db.Exec("CREATE TABLE IF NOT EXISTS RedeemRequests(requestID INTEGER PRIMARY KEY AUTOINCREMENT, itemName TEXT, coins FLOAT, madeBy TEXT, madeAt DATE DEFAULT (DATETIME('now', 'localtime')), status VARCHAR(1) DEFAULT 'p')")
 	router := mux.NewRouter()
 
 	router.HandleFunc("/signup", SignUp).Methods("POST")
@@ -28,6 +28,8 @@ func main() {
 	router.HandleFunc("/reward", Reward).Methods("POST")
 	router.HandleFunc("/redeem", Redeem).Methods("POST")
 	router.HandleFunc("/view", getCoins).Methods("GET")
+	router.HandleFunc("/pending", getPendingRequests).Methods("GET")
+	router.HandleFunc("/accept-reject", AcceptRejectRedeemRequest).Methods("POST")
 
 	log.Fatal(http.ListenAndServe(":8080", router))
 

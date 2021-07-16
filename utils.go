@@ -45,6 +45,18 @@ func addCoins(rec *recipient) error {
 		return errors.New("transaction failed: something went wrong")
 	}
 
+	txRes, err2 = Db.Exec("INSERT INTO Transaction_Logs (mode, secondaryUser, deb_cred_secondary) VALUES (?, ?, ?)", "REWARD", rec.Rollno, rec.Coins)
+	if err2 != nil {
+		tx.Rollback()
+		return errors.New("transaction failed: something went wrong")
+	}
+
+	rowsA, err3 = txRes.RowsAffected()
+	if err3 != nil || rowsA != 1 {
+		tx.Rollback()
+		return errors.New("transaction failed: something went wrong")
+	}
+
 	tx.Commit()
 	return nil
 
@@ -80,6 +92,18 @@ func sendCoins(trf *transfer) error {
 		return errors.New("transaction failed: something went wrong")
 	}
 
+	txRes, err2 = Db.Exec("INSERT INTO Transaction_Logs (mode, secondaryUser, deb_cred_secondary, primaryUser, deb_cred_primary) VALUES (?, ?, ?, ?, ?)", "TRANSFER", trf.ToRollno, trf.TaxedAmt*trf.Coins, trf.FromRollno, -trf.Coins)
+	if err2 != nil {
+		tx.Rollback()
+		return errors.New("transaction failed: something went wrong")
+	}
+
+	rowsA, err3 = txRes.RowsAffected()
+	if err3 != nil || rowsA != 1 {
+		tx.Rollback()
+		return errors.New("transaction failed: something went wrong")
+	}
+
 	tx.Commit()
 	return nil
 }
@@ -96,13 +120,61 @@ func redeemCoins(red *redeem) error {
 		return errors.New("transaction failed: something went wrong")
 	}
 	rowsA, err3 := txRes.RowsAffected()
+	if err3 != nil || rowsA > 1 {
+		tx.Rollback()
+		return errors.New("transaction failed: something went wrong")
+	}
+	if rowsA < 1 {
+		tx.Rollback()
+		return errors.New("balance not enough")
+	}
+	tx.Commit()
+	return nil
+}
+
+func updateRedeemReq(pv *pendingVerdict) error {
+
+	tx, err := Db.Begin()
+	if err != nil {
+		return errors.New("action failed: something went wrong")
+	}
+	txRes, err2 := tx.Exec("UPDATE RedeemRequests SET status = ? WHERE requestID = ?", pv.Verdict, pv.RequestID)
+
+	if err2 != nil {
+		tx.Rollback()
+		return errors.New("transaction failed: something went wrong")
+	}
+	rowsA, err3 := txRes.RowsAffected()
 	if err3 != nil || rowsA != 1 {
 		tx.Rollback()
 		return errors.New("transaction failed: something went wrong")
 	}
 
+	if pv.Verdict == "a" {
+		var red redeem
+		err = Db.QueryRow("SELECT madeBy, coins FROM RedeemRequests WHERE requestID = ?", pv.RequestID).Scan(&red.Rollno, &red.Coins)
+		if err != nil {
+			tx.Rollback()
+			return errors.New("transaction failed: something went wrong")
+		}
+		txRes, err2 = tx.Exec("UPDATE User SET coins = coins - ? WHERE rollno = ? AND coins >= ?", red.Coins, red.Rollno, red.Coins)
+		if err2 != nil {
+			tx.Rollback()
+			return errors.New("transaction failed: something went wrong")
+		}
+		rowsA, err3 = txRes.RowsAffected()
+		if err3 != nil || rowsA > 1 {
+			tx.Rollback()
+			return errors.New("transaction failed: something went wrong")
+		}
+		if rowsA < 1 {
+			tx.Rollback()
+			return errors.New("balance not enough")
+		}
+	}
 	tx.Commit()
 	return nil
+
 }
 
 func GetToken(rollno string, isAdmin bool, batch string) (string, error) {
