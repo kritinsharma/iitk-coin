@@ -8,7 +8,7 @@ type userDetails struct {
 	Rollno   string `json:"rollno"`
 	Name     string `json:"name"`
 	Password string `json:"password"`
-	// Batch    string `json:"batch"`
+	Email    string `json:"email"`
 }
 
 type userLogin struct {
@@ -19,7 +19,6 @@ type userLogin struct {
 type tokenPayload struct {
 	Rollno  string `json:"rollno"`
 	IsAdmin bool   `json:"isAdmin"`
-	// Batch   string `json:"batch"`
 	jwt.StandardClaims
 }
 
@@ -34,12 +33,14 @@ type transfer struct {
 	FromRollno string  `json:"frollno"`
 	Coins      float32 `json:"coins"`
 	TaxedAmt   float32 `json:"tax"`
+	OTP        string  `json:"otp"`
 }
 
 type redeem struct {
 	Rollno   string  `json:"rollno"`
 	Coins    float32 `json:"coins"`
 	ItemName string  `json:"itemName"`
+	OTP      string  `json:"otp"`
 }
 
 type redeemRequest struct {

@@ -4,13 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
+	"strings"
 
 	"golang.org/x/crypto/bcrypt"
 )
 
 var taxedAmt = []float32{0.98, 0.67} //Fraction left after taxes
-var jwtSignature string = os.Getenv("JWT_SIGNATURE")
 var minEventsToRedeem int = 2
 
 func SignUp(w http.ResponseWriter, r *http.Request) {
@@ -33,6 +32,10 @@ func SignUp(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(user.Password) <= 7 || len(user.Password) > 72 {
 		fmt.Fprint(w, "Password should be atleast 8 characters long.")
+		return
+	}
+	if !strings.HasSuffix(user.Email, "@iitk.ac.in") {
+		fmt.Fprint(w, "Invalid Email id")
 		return
 	}
 
@@ -203,41 +206,11 @@ func Transfer(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "Not Authorised.")
 		return
 	}
-	// sender Roll number from the payload
+
 	sender := pl.Rollno
-	// check if the sender exists
-	exist, er := Exists(sender)
-
-	if er != nil {
-		fmt.Fprint(w, er.Error())
-		return
-	}
-
-	if !exist {
-		fmt.Fprint(w, "Invalid request.")
-		return
-	}
 
 	trf := &transfer{}
 	json.NewDecoder(r.Body).Decode(trf)
-
-	var toBatch, fromBatch string
-	fromBatch, er = getBatch(sender)
-	if er != nil {
-		fmt.Fprint(w, er.Error())
-		return
-	}
-	toBatch, er = getBatch(trf.ToRollno)
-	if er != nil {
-		fmt.Fprint(w, er.Error())
-		return
-	}
-	i := 1
-	if fromBatch == toBatch {
-		i = 0
-	}
-	trf.TaxedAmt = taxedAmt[i]
-	trf.FromRollno = sender
 
 	if trf.Coins <= 0 {
 		fmt.Fprint(w, "Coins involved in a transaction must be positive!")
@@ -258,14 +231,42 @@ func Transfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = sendCoins(trf)
+	var toBatch, fromBatch string
+	fromBatch, err = getBatch(sender)
+	if err != nil {
+		fmt.Fprint(w, err.Error())
+		return
+	}
+	toBatch, err = getBatch(trf.ToRollno)
+	if err != nil {
+		fmt.Fprint(w, err.Error())
+		return
+	}
+	i := 1
+	if fromBatch == toBatch {
+		i = 0
+	}
+	trf.TaxedAmt = taxedAmt[i]
+	trf.FromRollno = sender
 
+	actualOTP, e := redisClient.Get(ctx, sender).Result()
+	if e != nil {
+		fmt.Println(e)
+		fmt.Fprint(w, "otp verification failed")
+		return
+	}
+	if actualOTP != trf.OTP {
+		fmt.Fprint(w, "incorrect OTP, try again")
+		return
+	}
+
+	err = sendCoins(trf)
 	if err != nil {
 		fmt.Fprint(w, err.Error())
 		return
 	}
 
-	fmt.Fprint(w, "Transaction Successful!")
+	fmt.Fprint(w, "Transaction Successful")
 
 }
 
@@ -294,6 +295,17 @@ func Redeem(w http.ResponseWriter, r *http.Request) {
 
 	if eventCount < minEventsToRedeem {
 		fmt.Fprint(w, "not eleigible to redeem yet")
+		return
+	}
+
+	actualOTP, e := redisClient.Get(ctx, red.Rollno).Result()
+	if e != nil {
+		fmt.Println(e)
+		fmt.Fprint(w, "otp verification failed")
+		return
+	}
+	if actualOTP != red.OTP {
+		fmt.Fprint(w, "incorrect OTP, try again")
 		return
 	}
 
@@ -378,4 +390,25 @@ func AcceptRejectRedeemRequest(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprint(w, "action completed successfully")
 
+}
+
+func SendOTP(w http.ResponseWriter, r *http.Request) {
+
+	pl, err := isValidToken(r)
+
+	exists, _ := Exists(pl.Rollno)
+
+	if err != nil || !exists {
+		fmt.Fprint(w, "Not Authorised.")
+		return
+	}
+	sender := pl.Rollno
+	err = mailOTP(sender)
+
+	if err != nil {
+		fmt.Fprint(w, err.Error())
+		return
+	}
+
+	fmt.Fprint(w, "OTP sent to your email. Verify to complete the transaction")
 }

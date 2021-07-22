@@ -4,9 +4,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+
+	"github.com/go-redis/redis/v8"
 )
 
 var Db *sql.DB
+
+var redisClient *redis.Client
 
 func Exists(rollNo string) (bool, error) {
 	var has bool
@@ -43,7 +47,7 @@ func addUser(usr *userDetails) error {
 	}
 
 	if !has {
-		_, err := Db.Exec("INSERT INTO User (rollno, name, password, coins, isAdmin) VALUES (?, ?, ?, ?, ?)", usr.Rollno, usr.Name, usr.Password, 0, 0)
+		_, err := Db.Exec("INSERT INTO User (rollno, name, password, coins, isAdmin, email) VALUES (?, ?, ?, ?, ?, ?)", usr.Rollno, usr.Name, usr.Password, 0, usr.Rollno == "000000", usr.Email)
 
 		if err != nil {
 			return errors.New("could not add user: something went wrong")
