@@ -11,6 +11,7 @@ import (
 	"time"
 
 	jwt "github.com/dgrijalva/jwt-go"
+	"golang.org/x/crypto/bcrypt"
 	gomail "gopkg.in/gomail.v2"
 )
 
@@ -159,20 +160,17 @@ func updateRedeemReq(pv *pendingVerdict) error {
 
 }
 
-func mailOTP(rollNo string) error {
+func mailOTP(rollNo string, txnMode string) error {
 
-	otp := make([]byte, 6)
-	_, err := rand.Read(otp)
+	OTP, hashedOTP, err := GenerateHashedOTP()
 	if err != nil {
+		fmt.Println(err)
 		return errors.New("something went wrong")
-	}
-	OTP := make([]rune, 6)
-	for i := 0; i < 6; i += 1 {
-		OTP[i] = rune(int(otp[i])%10 + '0')
 	}
 	var mailto string
 	err = Db.QueryRow("SELECT email FROM User WHERE rollno = ?", rollNo).Scan(&mailto)
 	if err != nil {
+		fmt.Println(err)
 		return errors.New("something went wrong")
 	}
 
@@ -182,21 +180,42 @@ func mailOTP(rollNo string) error {
 
 	m.SetHeader("From", fromEmail)
 	m.SetHeader("To", mailto)
-	m.SetHeader("Subject", "OTP from iitk-coin")
-	m.SetBody("text/HTML", fmt.Sprintf("Your otp is %s.<br>It will expire in 3 minutes<br>Do not share your otp with anyone else.", string(OTP)))
+	m.SetHeader("Subject", fmt.Sprintf("OTP from iitk-coin for %s", txnMode))
+	m.SetBody("text/HTML", fmt.Sprintf("Your otp for %s is %s.<br>It will expire in 5 minutes<br>Do not share your otp with anyone else.", txnMode, string(OTP)))
 
 	dialer := gomail.NewDialer(smtpHost, smtpPort, fromEmail, emailPasswd)
 
 	dialer.TLSConfig = &tls.Config{InsecureSkipVerify: true}
-	err = dialer.DialAndSend(m)
+	err = redisClient.Set(ctx, rollNo+txnMode, hashedOTP, 5*time.Minute).Err()
 	if err != nil {
+		fmt.Println(err)
 		return errors.New("something went wrong")
 	}
-	err = redisClient.Set(ctx, rollNo, string(OTP), 3*time.Minute).Err()
+	err = dialer.DialAndSend(m)
 	if err != nil {
+		fmt.Println(err)
 		return errors.New("something went wrong")
 	}
 	return nil
+}
+
+func GenerateHashedOTP() (string, string, error) {
+	otp := make([]byte, 6)
+	_, err := rand.Read(otp)
+	if err != nil {
+		fmt.Println(err)
+		return "", "", errors.New("something went wrong")
+	}
+	OTP := make([]rune, 6)
+	for i := 0; i < 6; i += 1 {
+		OTP[i] = rune(int(otp[i])%10 + '0')
+	}
+	hashedOTP, er := bcrypt.GenerateFromPassword([]byte(string(OTP)), bcrypt.MinCost)
+	if er != nil {
+		return "", "", er
+	}
+
+	return string(OTP), string(hashedOTP), nil
 }
 
 func GetToken(rollno string, isAdmin bool, batch string) (string, error) {
@@ -231,7 +250,7 @@ func isValidToken(r *http.Request) (tokenPayload, error) {
 	payload := tokenPayload{}
 
 	token, err := jwt.ParseWithClaims(r.Header["Token"][0], &payload, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok { // check if the tokenString is in the correct format
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("internal error")
 		}
 		return []byte(jwtSignature), nil

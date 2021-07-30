@@ -197,7 +197,6 @@ func getCoins(w http.ResponseWriter, r *http.Request) {
 
 func Transfer(w http.ResponseWriter, r *http.Request) {
 
-	// Validate token and get payload if the token is valid
 	pl, err := isValidToken(r)
 
 	exists, _ := Exists(pl.Rollno)
@@ -249,13 +248,14 @@ func Transfer(w http.ResponseWriter, r *http.Request) {
 	trf.TaxedAmt = taxedAmt[i]
 	trf.FromRollno = sender
 
-	actualOTP, e := redisClient.Get(ctx, sender).Result()
+	actualOTP, e := redisClient.Get(ctx, sender+"transfer").Result()
 	if e != nil {
 		fmt.Println(e)
 		fmt.Fprint(w, "otp verification failed")
 		return
 	}
-	if actualOTP != trf.OTP {
+	e = bcrypt.CompareHashAndPassword([]byte(actualOTP), []byte(trf.OTP))
+	if e != nil {
 		fmt.Fprint(w, "incorrect OTP, try again")
 		return
 	}
@@ -298,13 +298,14 @@ func Redeem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	actualOTP, e := redisClient.Get(ctx, red.Rollno).Result()
+	actualOTP, e := redisClient.Get(ctx, red.Rollno+"redeem").Result()
 	if e != nil {
 		fmt.Println(e)
 		fmt.Fprint(w, "otp verification failed")
 		return
 	}
-	if actualOTP != red.OTP {
+	e = bcrypt.CompareHashAndPassword([]byte(actualOTP), []byte(red.OTP))
+	if e != nil {
 		fmt.Fprint(w, "incorrect OTP, try again")
 		return
 	}
@@ -394,6 +395,14 @@ func AcceptRejectRedeemRequest(w http.ResponseWriter, r *http.Request) {
 
 func SendOTP(w http.ResponseWriter, r *http.Request) {
 
+	txnMode := r.URL.Path[1:]
+	for i := 0; i < len(txnMode); i++ {
+		if txnMode[i] == '/' {
+			txnMode = txnMode[:i]
+			break
+		}
+	}
+
 	pl, err := isValidToken(r)
 
 	exists, _ := Exists(pl.Rollno)
@@ -403,7 +412,7 @@ func SendOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sender := pl.Rollno
-	err = mailOTP(sender)
+	err = mailOTP(sender, txnMode)
 
 	if err != nil {
 		fmt.Fprint(w, err.Error())

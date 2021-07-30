@@ -1,0 +1,13 @@
+version: "3.9"
+services:
+    iitk-coin:
+        build: .
+        ports:
+            - "8080:8080"
+        environment: 
+            - FROM_EMAIL=example@gmail.com
+            - JWT_SIGNATURE=this-is-a-secret
+            - EMAIL_PASSWORD=password
+
+    redis:
+        image: redis:latest

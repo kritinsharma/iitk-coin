@@ -2,29 +2,22 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/mux"
-	godotenv "github.com/joho/godotenv"
+
 	_ "github.com/mattn/go-sqlite3"
 )
 
-var fromEmail string
-var emailPasswd string
-var jwtSignature string
+var fromEmail string = os.Getenv("FROM_EMAIL")
+var emailPasswd string = os.Getenv("EMAIL_PASSWORD")
+var jwtSignature string = os.Getenv("JWT_SIGNATURE")
 
 func main() {
-	er := godotenv.Load()
-	if er != nil {
-		log.Fatal("Error loading .env file")
-	}
-
-	fromEmail = os.Getenv("FROM_EMAIL")
-	emailPasswd = os.Getenv("EMAIL_PASSWORD")
-	jwtSignature = os.Getenv("JWT_SIGNATURE")
 
 	var err error
 	Db, err = sql.Open("sqlite3", "students.db")
@@ -39,7 +32,7 @@ func main() {
 	router := mux.NewRouter()
 
 	redisClient = redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
+		Addr:     "redis:6379",
 		Password: "",
 		DB:       0,
 	})
@@ -53,8 +46,10 @@ func main() {
 	router.HandleFunc("/view", getCoins).Methods("GET")
 	router.HandleFunc("/pending", getPendingRequests).Methods("GET")
 	router.HandleFunc("/accept-reject", AcceptRejectRedeemRequest).Methods("POST")
-	router.HandleFunc("/getOTP", SendOTP).Methods("POST")
+	router.HandleFunc("/transfer/otp", SendOTP).Methods("POST")
+	router.HandleFunc("/redeem/otp", SendOTP).Methods("POST")
 
+	fmt.Println("Server running at http://localhost:8080/")
 	log.Fatal(http.ListenAndServe(":8080", router))
 
 }
